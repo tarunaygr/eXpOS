@@ -1,0 +1,16 @@
+alias PID R10;
+alias pte R11;
+alias hasUnterminatedProcess R12;
+
+PID = [SYSTEM_STATUS_TABLE + 1];
+pte = PROCESS_TABLE + PID*16;
+
+
+[pte + 9] = 10; // mode = 10
+[pte + 13] = SP; // uptr
+SP = [pte+11]*512 -1;
+
+//exit has to clear everything of the process
+R1 = EXIT_PROCESS;
+call PROCESS_MANAGER;
+call CONTEXT_SWITCH;

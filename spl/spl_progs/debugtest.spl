@@ -1,0 +1,7 @@
+alias count R0;
+while( count<=10 ) do
+    if( count%2!=0 ) then
+        breakpoint;
+    endif ;
+    count=count+1;
+endwhile ;

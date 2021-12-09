@@ -1,0 +1,14 @@
+print "INT 10";
+alias currentPID R0;
+currentPID = [SYSTEM_STATUS_TABLE+1];
+alias process_table_entry R1;
+process_table_entry = PROCESS_TABLE + currentPID * 16;
+[process_table_entry+9]=10;
+SP=[process_table_entry+11]*512-1;
+
+R1=EXIT_PROCESS;
+R2=[SYSTEM_STATUS_TABLE+1];
+
+call MOD_1;
+
+call MOD_5;

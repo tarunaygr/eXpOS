@@ -1,0 +1,23 @@
+int main()
+{
+    decl
+        int temp,pid;
+        str filenName,fn;
+    enddecl
+    begin
+        write("file name : ");
+        read(filenName);
+         write("file2 name : ");
+        read(fn);
+    pid = exposcall("Fork");
+    if(pid == 0)
+    then
+        temp = exposcall("Exec", filenName);
+    else
+        temp = exposcall("Wait",pid);
+        temp = exposcall("Exec", fn);
+        
+    endif;
+        return 0;
+    end
+}

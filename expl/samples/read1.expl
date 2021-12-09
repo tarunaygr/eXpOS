@@ -1,0 +1,23 @@
+int main() {
+decl
+    int ret, fd, temp;
+    string word;
+enddecl
+begin
+    temp = exposcall("Write", -2, "FILE");
+    fd = exposcall("Open", "sample.dat");
+    write("fd is");
+    write(fd);
+    ret = exposcall("Read", fd, word);
+    write("ret is");
+    write(ret);
+    write(word);
+    while(ret == 0)
+    do
+        ret = exposcall("Write", -2, word);
+        ret = exposcall("Read", fd, word);
+    endwhile;
+
+    return 0;
+end
+}

@@ -1,0 +1,99 @@
+alias functionnum R1;
+alias ret R0;
+alias arg1 R2;
+alias pte R11;
+alias pid R10;
+alias i R12;
+if(functionnum == GET_FREE_PAGE) then
+   
+    pid = [SYSTEM_STATUS_TABLE+1];
+    pte = PROCESS_TABLE + pid*16;
+    [SYSTEM_STATUS_TABLE+3] = [SYSTEM_STATUS_TABLE+3] + 1;
+    while([SYSTEM_STATUS_TABLE+2] == 0) do
+        [pte+4] = WAIT_MEM;
+        multipush(R0, R1, R2, R3);
+        call CONTEXT_SWITCH;
+        multipop(R0, R1, R2, R3);
+    endwhile;
+    [SYSTEM_STATUS_TABLE+3] = [SYSTEM_STATUS_TABLE+3] - 1;
+    [SYSTEM_STATUS_TABLE+2] = [SYSTEM_STATUS_TABLE+2] - 1;
+    i = 76;
+    while(i < 128) do
+        if([MEMORY_FREE_LIST+i] == 0) then
+            [MEMORY_FREE_LIST + i] = 1;
+            R0 = i;
+            return;
+        endif;
+        i = i+1;
+    endwhile;
+   
+    return;
+endif;
+
+
+if(functionnum == RELEASE_PAGE) then
+    [MEMORY_FREE_LIST+R2]= [MEMORY_FREE_LIST+R2]-1;
+    [SYSTEM_STATUS_TABLE+2] = [SYSTEM_STATUS_TABLE+2] +1;
+    i = 0;
+    while (i < 16) do
+        if([PROCESS_TABLE+i*16+4]==WAIT_MEM) then
+            [PROCESS_TABLE+i*16+4] = READY;
+        endif;
+        i=i+1;
+    endwhile;
+    return;
+endif;
+
+
+if(functionnum == GET_CODE_PAGE) then
+    R7 = arg1;
+    //print(R7);
+    pid = [SYSTEM_STATUS_TABLE+1];
+    R8 = 0;
+    while(R8 < MAX_PROC_NUM) do
+        R9 = 4;
+        while(R9 < 8) do
+            if([DISK_MAP_TABLE + R8*10 + R9] == R7) then
+                    R2 = [PAGE_TABLE_BASE+R8*20+R9*2];
+                    if(R2 != -1) then
+                        //print("3");
+                        [MEMORY_FREE_LIST+R2] = [MEMORY_FREE_LIST+R2] +1;
+                        R0 = R2;
+                        return;
+                    endif;
+            endif;
+
+
+            R9 = R9+1;
+        endwhile;
+        
+        R8 = R8+1;
+    endwhile;
+    //print("2");
+    multipush(R5, R6, R7, R8, R9 , R10, R11, R12, R13);
+    R1 = GET_FREE_PAGE;
+    call MEMORY_MANAGER;
+    multipop(R5, R6, R7, R8, R9 , R10, R11, R12, R13);
+    R6 = R0;
+    //print("1");
+    multipush(R5, R6, R7, R8, R9 , R10, R11, R12);
+    //print("here");
+    //print(R0);
+    //print(R7);
+    R1 = DISK_LOAD;
+    R2 = pid;
+    R3 = R0;
+    R4 = R7;
+    call DEVICE_MANAGER;
+    multipop(R5, R6, R7, R8, R9 , R10, R11, R12);
+    R0 = R6;
+    breakpoint;
+    return ;
+endif;
+
+
+if(functionnum == RELEASE_BLOCK ) then
+    [DISK_FREE_LIST+arg1] = [DISK_FREE_LIST+arg1] - 1;
+    return;
+
+endif;

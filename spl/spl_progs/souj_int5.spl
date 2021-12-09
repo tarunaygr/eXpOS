@@ -1,0 +1,217 @@
+alias pid R1;
+alias pte R2;
+alias usp R3;
+
+alias lseeka R4;
+
+alias syscall R5;
+alias i R6;
+alias fname R7;		//renamed local as offset in SEEK syscall
+alias fdesc R8;
+alias inodee R9;		//renamed as inodei in SEEK syscall 
+alias openi R10;
+
+alias retn R12;
+//print "In5";
+
+pid = [SYSTEM_STATUS_TABLE + 1];
+pte = PROCESS_TABLE + pid*16;
+[pte+11] = [pte + 11];
+
+
+usp = SP;
+[pte + 13] = SP;
+SP = [pte+11]*512 - 1;
+
+syscall = [[PTBR + 2*((usp-5)/512)]*512 + (usp-5)%512];
+
+
+retn = [PTBR + 2*((usp-1)/512)]*512 + (usp-1)%512;
+
+
+//-----------------------------STARTING SYSCALL SPECIFIC IMPLEMENTATION------------------------------
+
+if(syscall == 2) then
+	[pte + 9] = 2;	//mode flag to syscall
+	fname = [[PTBR + 2*((usp-4)/512)]*512 + (usp-4)%512];
+
+	i = 0;
+	while(i < 8) do
+		if([[pte+11]*512 + 496 + 2*i] == -1) then
+			break;
+		endif;
+	i = i + 1;
+	endwhile;
+
+	if(i == 8) then		//if no PER_PROC_TAB entry free
+		[retn] = -3;
+
+		[pte + 9] = 0;
+		SP = [pte + 13];
+		ireturn;
+
+	else			//if a free PER_PROC_TAB_ENTRY is found
+		fdesc = i;	//index of the fee PER_PROC_TAB entry will be the new fdesc
+
+		multipush( R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12);
+		R1 = OPEN;
+		R2 = fname;
+		call MOD_3;		//calling OPEN function of file_AMANGER module
+		multipop(R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12);
+		openi = R0;		//OPEN_FILE_TAB index is stored in R10
+
+		if(openi < 0) then	//things to do if OPEN function failed (ex. file not found, file is EXEC(not ROOT or DATA file), OPEN_FILE_TAB full etc.)
+
+			[retn] = openi;
+
+			call exit;
+
+		else	//if a valid OPEN file TABLE entry was returnded
+
+			[[pte+11]*512 + 496 + 2*fdesc + 0] = FILE;
+			[[pte+11]*512 + 496 + 2*fdesc + 1] = openi;
+
+			[retn] = fdesc;
+			print "INDEX";
+			print fdesc;
+			print "ftindex";
+			print openi;
+			call exit;
+		endif;
+
+	endif;
+		
+endif;
+
+
+
+
+if(syscall == 3) then
+	[pte + 9] = 3;
+	fdesc = [[PTBR + 2*((usp-4)/512)]*512 + (usp-4)%512];
+	if(fdesc < 0 || fdesc > 7) then		//if fdesc invalid
+		[retn] = -1;
+
+		call exit;
+
+	else	//if fdesc valid
+
+		if([[pte+11]*512 + 496 + 2*fdesc + 0] != FILE) then	//if per-PROC_TAB entry is not for FILE ie (INVALID or SEMAPHORE)
+
+			[retn] = -1;
+
+			call exit;
+		else	//if the PER_PROC_TAB entry is for FILE
+			
+			openi = [[pte+11]*512 + 496 + 2*fdesc + 1];
+
+			backup;
+			R1 = CLOSE;		//calling close func of FILE_MANAGER MODULE
+			R2 = openi;
+			call MOD_3;
+			restore;
+
+			[[pte+11]*512 + 496 + 2*fdesc + 0] = -1;		//invalidating PER_PROC_RES_TAB entry
+			[retn] = 0;
+			call exit;
+		endif;
+
+	endif;
+endif;
+
+
+
+
+
+
+
+// **syscall 3 for Seek**
+if(syscall == 6) then
+	alias offset R7;
+	alias inodei R9;
+
+	[pte + 9] = 6;
+	fdesc = [[PTBR + 2*((usp-4)/512)]*512 + (usp-4)%512];
+	offset = [[PTBR + 2*((usp-3)/512)]*512 + (usp-3)%512];
+
+	if(fdesc < 0 || fdesc > 7) then	//if fdesc is invalid
+		[retn]  = -1;
+		call exit;	
+	endif;
+
+	if([[pte+11]*512 + 496 + 2*fdesc + 0] != FILE) then	//if given desc doen't coreesond to a file
+		[retn]  = -1;
+		call exit;
+	endif;
+
+	openi = [[pte+11]*512 + 496 + 2*fdesc + 1];
+	inodei = [OPEN_FILE_TABLE + 4*openi + 0];
+
+	multipush ( R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12);
+		R3 = pid;
+		R1 = ACQUIRE_INODE;
+		R2 = inodei;
+		call MOD_0;
+	multipop (R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12);
+		
+
+	if(R0 == -1) then	//if locking INODE fails
+		[retn] = -1;
+		call exit;
+	endif;
+
+	lseeka = OPEN_FILE_TABLE + 4*openi + 2;
+
+	if(([lseeka] + offset) < 0) then	//if given offset takes lseek to <0
+
+		backup;
+		R3 = pid;
+		R1 = RELEASE_INODE;		//relese inode
+		R2 = inodei;
+		call MOD_0;
+		restore;
+
+		[retn] = -2;
+		ireturn;
+	endif;
+
+
+	//R0 from here will contain FILE_SIZE
+	if(inodei == INODE_ROOT) then	//R0 contains FILE_SIZE
+		R0 = 480;				//file size of ROOT is 480(but in inode tab hows 512 ??)
+	else
+		R0 = [INODE_TABLE + 16*inodei + 2];	//file size form inode tab if file is not root
+	endif;
+
+	if(offset == 0) then
+		[lseeka] = 0;
+	else
+		if(([lseeka]+offset) > R0) then
+			[lseeka] = R0;
+		else
+			[lseeka] = [lseeka] + offset;
+		endif;
+	endif;
+
+	backup;
+	R3 = pid;
+	R1 = RELEASE_INODE;		//release inode
+	R2 = inodei;
+	call MOD_0;
+	restore;
+
+	[retn] = 0;		//returning 0 for success
+
+	call exit;
+endif;
+
+exit:
+    [pte + 9] = 0;
+    SP = [pte + 13];
+    ireturn;
+
+ltv:
+    i = R14/512;
+    i = [PAGE_TABLE_BASE + R15*20 + 2*i];
+    R13 = (i*512) + (R14%512);
+    return;

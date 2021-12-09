@@ -1,0 +1,56 @@
+//SHUTDOWN
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=21;
+
+alias UStack R10;
+UStack=SP;
+
+alias returnvalue R12;
+returnvalue = ([PTBR + 2 * ((UStack - 1) / 512)] * 512) + ((UStack - 1) % 512);
+
+
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+
+if( [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE+1] + 1]!=1 && [PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE+1] + 3]!=1 ) then
+    [returnvalue]=-1;
+    call exit;
+endif ;
+//INODE TABLE
+multipush(R10,R12);
+R1=DISK_STORE;
+R2=[SYSTEM_STATUS_TABLE+1];
+R3=59;
+R4=3;
+
+call MOD_4;
+
+R1=DISK_STORE;
+R2=[SYSTEM_STATUS_TABLE+1];
+R3=60;
+R4=4;
+
+call MOD_4;
+
+//ROOT FILE
+R1=DISK_STORE;
+R2=[SYSTEM_STATUS_TABLE+1];
+R3=62;
+R4=5;
+
+call MOD_4;
+
+//DISK FREE LIST
+R1=DISK_STORE;
+R2=[SYSTEM_STATUS_TABLE+1];
+R3=61;
+R4=2;
+
+call MOD_4;
+multipop(R10,R12);
+
+halt;
+
+exit:
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13];
+ireturn;

@@ -1,0 +1,131 @@
+//EXEC
+
+//print "int9";
+alias currentPID R10;
+alias process_table_entry R11;
+
+alias UStack R15;
+UStack=SP;
+
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+
+
+currentPID=[SYSTEM_STATUS_TABLE+1];
+process_table_entry=PROCESS_TABLE+currentPID*16;
+
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+9]=9; //Setting the mode flag
+
+alias filename R1;
+
+filename= [([PTBR+2*((UStack-4)/512)]*512)+((UStack-4)%512)];
+
+//Searching in the inode table
+
+alias i R2;
+alias inodeindex R3;
+alias physicalAddrRetVal R5;
+physicalAddrRetVal = ([PTBR + 2 * ((UStack - 1) / 512)] * 512) + ((UStack - 1) % 512);
+
+i=0;
+while( i<MAX_FILE_NUM ) do
+    if([INODE_TABLE+(i*16)+1]==filename&&[INODE_TABLE+(i*16)]==EXEC) then
+        inodeindex=i;
+        break;
+    else
+        i=i+1;
+        if( i>=MAX_FILE_NUM ) then
+            SP=UStack;
+            [PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+9]=0;
+            [physicalAddrRetVal]=-1;
+            ireturn;
+        endif ;
+    endif ;
+endwhile;
+backup;
+R1=EXIT_PROCESS;
+R2=[SYSTEM_STATUS_TABLE+1];
+call MOD_1;
+
+restore;
+
+alias userpage R4;
+
+userpage=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11];
+
+[MEMORY_FREE_LIST +userpage]=[MEMORY_FREE_LIST +userpage]+1;
+[SYSTEM_STATUS_TABLE+2]=[SYSTEM_STATUS_TABLE+2]-1;
+
+SP=userpage*512-1;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+4]=RUNNING;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+7]=inodeindex;
+
+PTBR=PAGE_TABLE_BASE+(20*[SYSTEM_STATUS_TABLE+1]);
+PTLR=10;
+
+alias pprt R12;
+
+pprt =(userpage+1)*512 - 16;
+
+i=0;
+while( i<16 ) do
+    [pprt+i]=-1;
+    i=i+1;
+endwhile ;
+
+//Library
+[PTBR+0]=63;
+[PTBR+1]="0100";
+[PTBR+2]=64;
+[PTBR+3]="0100";
+
+
+//Stack
+backup;
+R1=GET_FREE_PAGE;
+call MOD_2;
+[PTBR+16]=R0;
+[PTBR+17]="0110";
+R1=GET_FREE_PAGE;
+call MOD_2;
+[PTBR+18]=R0;
+[PTBR+19]="0110";
+restore;
+//Heap
+[PTBR+4]=-1;
+[PTBR+5]="0000";
+[PTBR+6]=-1;
+[PTBR+7]="0000";
+
+
+R14=[INODE_TABLE+(inodeindex*16)+8];
+
+backup;
+R1=GET_CODE_PAGE;
+R2=[INODE_TABLE+(inodeindex*16)+8];
+
+call MOD_2;
+
+[PTBR+8]=R0;   
+[PTBR+9]="0100";
+restore;
+//Rest of code pages
+[PTBR+10]=-1;   
+[PTBR+11]="0000";
+[PTBR+12]=-1;   
+[PTBR+13]="0000";
+[PTBR+14]=-1;   
+[PTBR+15]="0000";
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+2]=-1;
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+3]=-1;
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+4]=[INODE_TABLE+(inodeindex*16)+8];
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+5]=[INODE_TABLE+(inodeindex*16)+9];
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+6]=[INODE_TABLE+(inodeindex*16)+10];
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+7]=[INODE_TABLE+(inodeindex*16)+11];
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+8]=-1;
+[DISK_MAP_TABLE+(10*[SYSTEM_STATUS_TABLE+1])+9]=-1;
+
+[[PTBR+16]*512]=[[PTBR+8]*512+1];//Storing the start address into the top of user stack
+SP=8*512;
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+ireturn;

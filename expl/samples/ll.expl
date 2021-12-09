@@ -1,0 +1,47 @@
+type
+node {
+    int data;
+    node next;
+}
+endtype
+int main()
+{
+decl
+    int temp, num, i,n;
+    node head;
+    node cur;
+    node prev;
+    int flag;
+enddecl
+begin
+    
+    head = null;
+    temp = initialize();
+    write("enter n");
+    read(n);
+    prev = head;
+    write("enter nos.");
+    while(n > 0) do
+        read(num);
+        cur = alloc();
+        cur.data = num;
+        cur.next = null;
+        if(head == null) then
+            head = cur;
+            prev = cur;
+        else
+            prev.next = cur;
+            prev = cur;
+        endif;
+        n = n-1;
+    endwhile;
+    write("Res : ");
+    cur = head;
+    while(cur!=null) do
+        write(cur.data);
+        cur = cur.next;
+    endwhile;
+    //free(cur);
+    return 0;
+end
+}

@@ -1,0 +1,161 @@
+//FORK
+print "int8";
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+9]=8;
+alias Ustack R15;
+Ustack=SP;
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+alias childPID R10;
+alias parent_process_table R12;
+alias child_process_table R11;
+alias parentPID R13;
+alias returnvalue R8;
+returnvalue = ([PTBR + 2 * ((Ustack - 1) / 512)] * 512) + ((Ustack - 1) % 512);
+
+//Get PID for child process
+R1=GET_PCB_ENTRY;
+call MOD_1;
+childPID=R0; 
+parentPID=[SYSTEM_STATUS_TABLE+1];
+child_process_table=PROCESS_TABLE+(childPID*16);
+parent_process_table=PROCESS_TABLE+(parentPID*16);
+R7=PAGE_TABLE_BASE+(20*[SYSTEM_STATUS_TABLE+1]);
+
+
+if( childPID==-1 ) then//PID not available
+    [returnvalue]=-1;
+    [parent_process_table+9]=0;
+    SP=[parent_process_table+13];
+    ireturn;
+else
+
+    //Allocate Heap Pages if not already allocated
+    
+    if( [parent_process_table+4]==-1 ) then
+        multipush(R7,R8,R10,R11,R12,R13);
+        R1=GET_FREE_PAGE;
+        call MOD_2;
+        [R7+4]=R0;
+        [R7+5]="1110";
+        R1=GET_FREE_PAGE;
+        call MOD_2;
+        [R7+6]=R0;
+        [R7+7]="1110";
+        multipop(R7,R8,R10,R11,R12,R13);
+
+    endif ;
+        //Allocate Child Stack Pages
+        multipush(R8,R10,R11,R12,R13,R14,R15);
+        R1=GET_FREE_PAGE;
+        call MOD_2;
+        [PAGE_TABLE_BASE+(20*childPID)+16]=R0;
+        [PAGE_TABLE_BASE+(20*childPID)+17]="0110";
+        R1=GET_FREE_PAGE;
+        call MOD_2;
+    
+        [PAGE_TABLE_BASE+(20*childPID)+18]=R0;
+        [PAGE_TABLE_BASE+(20*childPID)+19]="0110";
+        
+        //User Area page for Child
+        R1=GET_FREE_PAGE;
+        call MOD_2;
+        
+        [child_process_table+11]=R0;
+
+        multipop(R8,R10,R11,R12,R13,R14,R15);
+
+    [child_process_table+3]=[parent_process_table+3]; //User ID
+    [child_process_table+6]=[parent_process_table+6]; //Swap Flag
+    [child_process_table+10]=[parent_process_table+10]; // User Area Swap Status
+    [child_process_table+7]=[parent_process_table+7];   // Inode Index
+    [child_process_table+13]=[parent_process_table+13]; //UPTR
+    
+    Ustack=[parent_process_table+13];
+
+    [child_process_table]=0; //Tick
+    [child_process_table+9]=0;  // Mode Flag
+    [child_process_table+12]=0; //KPTR
+    [child_process_table+2]=parentPID; //PPID
+    [child_process_table+4]=CREATED; //Status
+    alias i R6;
+    //Copying DISK MAP TABLE
+    i=0;
+    R2=DISK_MAP_TABLE+parentPID*10;
+    R3=DISK_MAP_TABLE+childPID*10;
+
+    while( i<10 ) do
+        [R3+i]=[R2+i];
+        i=i+1;
+    endwhile ;
+    
+    //Copying Per process resource table
+    
+    R2=[parent_process_table+11]*512+496;
+    R3=[child_process_table+11]*512+496;
+    i=0;
+    
+    while(i<8)do
+        [R3+ 2*i]=[R2+ 2*i];
+        [R3 + 2*i +1]= [R2+ 2*i +1];
+        R9=[R3 + 2*i+1]*4;
+        if([R3 + 2*i]==1)then 
+            [SEMAPHORE_TABLE + R9 +1]=1+[SEMAPHORE_TABLE + R9 +1];
+        endif;
+        if([R3 + 2*i]==0)then 
+            [OPEN_FILE_TABLE + R9 +1]=1+[OPEN_FILE_TABLE + R9 +1];
+        endif;
+        
+        i=i+2;
+    endwhile;
+
+
+
+//  Copying Page Table Values for Lib, Code and Heap
+    R2=PAGE_TABLE_BASE+(20*parentPID);
+    R3=PAGE_TABLE_BASE+(20*childPID);
+    i=0;
+
+    while( i<16 ) do
+        [R3+i]=[R2+i];
+        i=i+1;
+    endwhile ;
+    
+
+    //Incrementing Mem Free List of lib,code and heap pages
+    i=0;
+    while( i<16 ) do
+        if( [R2+i]!=-1 ) then
+            [MEMORY_FREE_LIST+[R2+i]]=[MEMORY_FREE_LIST+[R2+i]]+1; 
+        endif ;
+        
+        i=i+2;
+    endwhile ;
+    i=0;
+
+    //Copying Stack Page Values
+    R2=[PAGE_TABLE_BASE+(20*parentPID)+16]*512;
+    R3=[PAGE_TABLE_BASE+(20*childPID)+16]*512;
+    R4=[PAGE_TABLE_BASE+(20*parentPID)+18]*512;
+    R5=[PAGE_TABLE_BASE+(20*childPID)+18]*512;
+    
+    while( i<512 ) do
+
+    [R3+i]=[R2+i];
+    [R5+i]=[R4+i];
+    
+    i=i+1;
+    endwhile ;
+
+
+    [[child_process_table+11]*512]=BP;
+    
+    //Passing return values to each of the processes
+    R2=PAGE_TABLE_BASE+(20*parentPID);
+    R3=PAGE_TABLE_BASE+(20*childPID);
+    [[R2+2*(Ustack-1)/512]*512 +(Ustack-1)%512]=childPID;
+    [[R3+2*(Ustack-1)/512]*512 +(Ustack-1)%512]=0;
+
+    [PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+9]=0;
+    SP=[parent_process_table+13];
+    ireturn;
+endif ;

@@ -1,0 +1,183 @@
+//FILE MANAGER
+//print "MOD3";
+alias funcno R1;
+
+
+if( funcno==OPEN ) then
+    alias filename R2;
+    alias i R12;
+    alias inodeindex R13;
+    i=0;
+    while( i<MAX_FILE_NUM ) do
+        if( [INODE_TABLE+(i*16)+1]==filename ) then
+            inodeindex=i;
+            break;
+        else
+            i=i+1;
+            
+        endif ;
+    endwhile ;
+    if( i>=MAX_FILE_NUM ) then
+        R0=-1;
+        return;
+    endif;
+    multipush(R1,R2,R12,R13);
+    
+    R1=ACQUIRE_INODE;
+    R2=inodeindex;
+    R3=[SYSTEM_STATUS_TABLE+1];
+    
+    call MOD_0;
+    
+    R11=R0;
+    
+    multipop(R1,R2,R12,R13);
+    
+    if( R11==-1 ) then
+        R0=-1;
+        return;
+    endif ;
+
+    if([INODE_TABLE+(inodeindex*16)]==EXEC)then
+        backup;
+        R1=RELEASE_INODE;
+        R2=inodeindex;
+        R3=[SYSTEM_STATUS_TABLE+1];
+        
+        call MOD_0;
+        restore;
+        R0=-1;
+        return;
+    endif;
+    i=0;
+    alias of_index R10;
+
+    while( i<MAX_OPENFILE_NUM ) do
+        if([OPEN_FILE_TABLE +4*i+0]==-1)then
+            of_index=i;
+            break;
+        endif;
+        i=i+1;
+    endwhile ;
+
+    if( i>=MAX_OPENFILE_NUM ) then
+        backup;
+    
+        R1=RELEASE_INODE;
+        R2=inodeindex;
+        R3=[SYSTEM_STATUS_TABLE+1];
+        
+        call MOD_0;
+        restore;
+
+        R0=-2;
+        return;
+    endif ;
+
+    if( filename=="root" ) then
+
+        [OPEN_FILE_TABLE +4*of_index+0] = INODE_ROOT;
+    else
+        if([FILE_STATUS_TABLE + 4*inodeindex + 1]<0)then
+            [FILE_STATUS_TABLE + 4*inodeindex + 1]=1;
+        else
+            [FILE_STATUS_TABLE + 4*inodeindex + 1]=[FILE_STATUS_TABLE + 4*inodeindex + 1]+1;
+        endif;
+        [OPEN_FILE_TABLE + 4*of_index]=inodeindex;
+    endif ;
+
+    [OPEN_FILE_TABLE +4*of_index+1]=1;
+    [OPEN_FILE_TABLE +4*of_index+2]=0;   
+
+    backup;
+    
+        R1=RELEASE_INODE;
+        R2=inodeindex;
+        R3=[SYSTEM_STATUS_TABLE+1];
+        
+        call MOD_0;
+        
+    restore;
+
+    R0=of_index;
+    return;
+endif ;
+
+
+if( funcno==CLOSE ) then
+    alias of_index R2;
+    alias inodeindex R10;
+    R3=OPEN_FILE_TABLE +4*of_index;
+    inodeindex= [R3];
+    [R3+1]= [R3+1]-1;
+
+    if( [R3+1]==0 ) then
+        [R3]=-1;
+        [R3+1]=-1;
+        [R3+2]=-1;
+    
+        if( inodeindex!=INODE_ROOT ) then
+            [FILE_STATUS_TABLE + 4*inodeindex + 1]=[FILE_STATUS_TABLE + 4*inodeindex + 1]-1;
+        endif ;
+
+        if( [FILE_STATUS_TABLE + 4*inodeindex + 1]==0 ) then
+            [FILE_STATUS_TABLE + 4*inodeindex + 0]=-1;
+            [FILE_STATUS_TABLE + 4*inodeindex + 1]=-1;
+            [FILE_STATUS_TABLE + 4*inodeindex + 2]=-1;
+        endif;
+    endif ;
+    return;
+endif ;
+
+if( funcno==BUFFERED_READ ) then
+    alias blockno R2;
+    alias offset R3;
+
+    alias addr R4;
+    alias buffindex R5;
+    buffindex=blockno%4;
+
+    backup;
+    R1=ACQUIRE_BUFFER;
+    R2=buffindex;
+    R3=[SYSTEM_STATUS_TABLE+1];
+    call MOD_0;
+
+    restore;
+    if( [BUFFER_TABLE + 4*buffindex]!=blockno ) then
+        if( [BUFFER_TABLE + 4*buffindex+1]==1 ) then
+            backup;
+            R1=DISK_STORE;
+            R4=[BUFFER_TABLE + 4*buffindex];
+            R2=[SYSTEM_STATUS_TABLE+1];
+            R3=(BUFFER/512)+buffindex;
+            
+            call MOD_4;
+            restore;
+            [BUFFER_TABLE + 4*buffindex+1]=0;
+            [BUFFER_TABLE + 4*buffindex]=-1;
+            
+        endif ;
+        backup;
+        R1=DISK_LOAD;
+        R4=blockno;
+        R2=[SYSTEM_STATUS_TABLE+1];
+        R3=(BUFFER/512)+buffindex;
+        
+        
+        
+        call MOD_4;
+        restore;
+        [BUFFER_TABLE + 4*buffindex]=blockno;
+    endif ;
+    [addr]=[BUFFER+(buffindex*512)+offset];
+
+    backup;
+    R1=RELEASE_BUFFER;
+    R2=buffindex;
+    R3=[SYSTEM_STATUS_TABLE+1];
+    call MOD_0;
+
+    restore;
+    return;
+endif ;
