@@ -1,0 +1,140 @@
+// =========================================INT READ ==============================================================='
+// 		ARG1: FDESC
+//      ARG2: WORD (The second argument is a variable to store number/string from console); the word address. physical one
+//      ARG 3: NONE
+//      RETN: R0 0 - success, -1 : fdesc invalid, -2: eof;
+
+alias usp R3;
+alias pid R15;
+alias pcb R2;
+alias fdesc R5;
+alias word R6;
+alias rest R7;
+
+alias openi R8;
+alias inodei R9;
+
+alias retn R10;
+alias tmp R11;
+alias lseek R12;
+alias phy R13;
+pid = [SYSTEM_STATUS_TABLE + 1];
+pcb = PROCESS_TABLE + pid*16;
+//print "in6";
+
+[pcb + 9] = 7;									//setting mode to syscall number of write i.e. 7 in PROCESS_TABLE
+usp = SP;
+
+[pcb  + 13] = SP;
+SP = [pcb + 11]*512 - 1;
+
+fdesc = [[PTBR + 2*((usp-4)/512)]*512 + (usp-4)%512];
+word = [[PTBR + 2*((usp-3)/512)]*512 + (usp-3)%512];
+retn = [PTBR + 2*((usp-1)/512)]*512 + ((usp-1)%512);
+
+//----------------------------------------------READ FROM FILE------------------------------------------------------------------	
+if(fdesc != -1) then	
+	//-----------------------------------------if file_desc is invalid for a file
+	if(fdesc < 0  ||  fdesc > 7) then	
+		[retn] = -1;
+		[pcb + 9] = 0;	
+		SP = [pcb + 13];
+		print("ER fdescinv");
+		ireturn;
+	endif;
+	rest = [pcb + 11]*512 + RESOURCE_TABLE_OFFSET;
+	if([rest+fdesc*2] != FILE) then	
+		[retn] = -1;
+		[pcb + 9] = 0;		
+		SP = [pcb + 13];		
+		ireturn;
+	endif;
+	openi = [rest + fdesc*2 + 1];
+	inodei = [OPEN_FILE_TABLE + 4*openi + 0];
+	print "INT6 inodei";
+	print inodei;
+	// --------------------------------acquire the corresponding inode you want to read from -------------------------------------
+	multipush (R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12,R13,R15);
+	R1 = ACQUIRE_INODE;
+	R2 = inodei;
+    R3 = pid;
+	call RESOURCE_MANAGER;
+	multipop (R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12,R13,R15);
+	// --------------------------------check the return value------------------------------------------------------------
+	if(R0 == -1) then
+		[retn] = -1;
+		[pcb + 9] = 0;		    
+		SP = [pcb + 13];
+        //print("xx");
+		ireturn;
+	endif;
+	lseek = OPEN_FILE_TABLE + 4*openi + 2;
+	phy = [PTBR + 2*(word/512)]*512 + (word)%512;
+	// ------------------------------check if it is root file -----------------------------------------------------
+	if(inodei == INODE_ROOT) then
+		if([lseek] >= 480) then
+			backup;
+			R1 = RELEASE_INODE;
+			R2 = inodei;		
+        	R3 = pid;
+			call RESOURCE_MANAGER;
+			restore;
+			[retn] = -2;		
+			[pcb + 9] = 0;
+			SP = [pcb + 13];
+			ireturn;
+		else
+			// ------------------------Reading from the root file does not require a buffer, as root file is already loaded into the memory at boot-time---------
+
+			[([PTBR + 2*(word/512)])*512 + (word%512)] = [ROOT_FILE + [lseek]];
+			[lseek] = [lseek] + 1;
+		endif;
+	else
+		if([lseek] >= [INODE_TABLE + 16*inodei + 2]) then	//if lseek already at end of file (lseek >= filesize)
+			backup;
+			R1 = RELEASE_INODE;
+			R2 = inodei;
+			R3 = pid;
+			call RESOURCE_MANAGER;
+			restore;
+
+			[retn] = -2;
+			[pcb + 9] = 0;
+			SP = [pcb + 13];
+			ireturn;
+
+		else
+			backup;
+			R1 = BUFFERED_READ; 			                                  
+			R2 = [INODE_TABLE+ 16*inodei + 8 + ([lseek]/512)];	    
+			R3 = [lseek]%512;
+			R4 = phy;
+			call FILE_MANAGER;
+			restore;
+			[lseek] = [lseek] + 1;
+		endif;
+	endif;
+	backup;
+        R1 = RELEASE_INODE;
+        R2 = inodei;       
+        R3 = pid;
+        call RESOURCE_MANAGER;
+    restore;
+	[retn] = 0;             
+	[pcb + 9] = 0;        
+ //print("c");
+    SP = [pcb + 13];     
+    ireturn;
+else
+//print("h");
+	backup;
+	R1 = TERMINAL_READ;			
+	R2 = [SYSTEM_STATUS_TABLE + 1];
+	R3 = word;
+	call DEVICE_MANAGER;
+	restore;
+	[retn] = 0;
+	[pcb + 9] = 0;		
+	SP = [pcb + 13];
+    ireturn;
+endif;

@@ -1,0 +1,197 @@
+// R14 and R15 are for the memory translate and result is stored in R13
+// i j and k are temp variables
+// 4 to 10 are saved variables
+// 13- 15 are for ltv
+alias arg2 R10;
+alias pid R4;
+alias usp R5;
+alias pcb R6;
+alias sys R7;
+//args: only 1 here i.e,. r8
+alias arg1 R8;
+alias retn R9;
+//stuff free are 11, 12,
+alias i R3;
+usp = SP;
+pid = [SYSTEM_STATUS_TABLE+1];
+pcb = PROCESS_TABLE + pid*16;
+//print "In4";
+[pcb + 13] = SP;
+SP = [pcb+11]*512 -1;
+//print("indelll");
+R14 = usp - 5;
+R15 = pid;
+call ltv;
+sys = [R13];
+
+R14 = usp - 4;
+R15 = pid;
+call ltv;
+arg1 = [R13];
+
+R14 = usp - 3;
+R15 = pid;
+call ltv;
+arg2 = [R13];
+
+
+//print("arg1is");
+breakpoint;
+//print(arg1);
+R14 = usp - 1;
+R15 = pid;
+call ltv;
+retn = [R13];
+
+
+//takes file name and permission as the arguments. 
+if(sys == INT_CREATE) then
+    [pcb + 9] = INT_CREATE; 
+    alias filename R11;
+    alias perm R12;
+    filename = arg1;
+    perm = arg2;
+    i = 0;
+    //create an entry in the inode table/
+    alias inode R13; // --------------------------------------------------->>becareful here------->>>>>>>>>>>>>>>>
+    while(i < MAX_FILE_NUM) do 
+        inode = INODE_TABLE + i*16;
+        if([inode + 1] == filename) then
+            break;
+        endif;
+
+        if([inode + 1] == -1) then
+            break;
+        endif;
+        i = i+1;
+    endwhile;
+    if(i==MAX_FILE_NUM)
+    then
+        retn = -1;
+        call exit;
+    endif;
+    alias roott R0;
+    alias userid R1;
+    alias uname R2;
+    //--------------------initialise inode table -----------------------------------
+    roott = ROOT_FILE + i*8;
+    userid = [pcb+3];
+    uname = [USER_TABLE + userid*2];
+    [inode + 0]  = DATA;           // TYPE
+    [inode + 1]  = filename;       // FILENAME
+    [inode + 2]  = 0;              // SIZE
+    [inode + 3]  = userid;         // USERID
+    [inode + 4]  = perm;           // PERMISSION
+    [inode + 8]  = -1;             // BLOCK1
+    [inode + 9]  = -1;             // BLOCK2
+    [inode + 10] = -1;             // BLOCK3
+    [inode + 11] = -1;             // BLOCK4
+
+    // ------------------------initialise root table ----------------------------------
+
+    [roott + 0] = filename;     // FILENAME
+    [roott + 1] = 0;            // SIZE
+    [roott + 2] = DATA;         // TYPE
+    [roott + 3] = uname;     // PERMISSION
+    breakpoint;
+    call exit;
+
+endif;
+/// ===================arg is the name of the document================================
+
+if(sys == 4) then
+    //print("indel");
+    [pcb + 9] = INT_DELETE;
+    alias filenum R11;
+    alias inode R13;
+    alias filename R12;
+    //------------------------1. get the inode entry first------------------------------------------- invalidate the file entries in other files 
+    // find the inode entry 
+    filename = arg1;
+    filenum = 0;
+    while(filenum < MAX_FILE_NUM) do
+        inode = INODE_TABLE + filenum*16;
+        if([inode + 1] == filename ) then
+            break;
+        endif;
+        filenum = filenum + 1;
+    endwhile;
+    if(filenum==MAX_FILE_NUM) then
+        retn = 0;
+        call exit;
+    endif;
+    if([inode + 1] != DATA) then
+        retn = -1;
+        call exit;
+    endif;
+    if([inode + 4] == EXCLUSIVE && [inode + 3] != [pcb + 3]) then
+        retn = -1;
+    endif;
+    // --------------------2. acquire inode -----------------------------------------------
+    multipush( R7, R8, R10, R11, R12,R13);
+    R1 = ACQUIRE_INODE;
+    R2 = filenum;
+    R3 = pid;
+    call RESOURCE_MANAGER;
+    multipop( R7, R8, R10, R11, R12,R13);
+    if([FILE_STATUS_TABLE + filenum*4 + 1] != -1) then  // Check FILE_OPEN_COUNT = -1 then we cant delete
+        retn = -2;
+        call exit;
+    endif;
+    alias block R0;
+    alias i R2;
+    i = 0;
+    alias bi R15;
+    alias be R14;
+    // -------------------invalidate and release blocks -----------------
+    while( i < 4) do 
+        block = [inode + 8 + i];
+        // --------check if the block is open in the buffertable-----------------if it is marked dirty, i,e., if the page has been modified
+        // write back is usually performed if the dirty bit is set 
+        // we are deleting the file. so we dont have to write back to the disk.
+        bi = 0;
+        while(bi < 4) do 
+            be = BUFFER_TABLE + bi*4;
+            if([be] == block) then
+                [be + 0] = -1;   // Invalidate
+                [be + 1] = 0;    // Reset DIRTY bit
+                [be + 2] = -1;   // Invalidate
+                break;
+            endif;
+            multipush( R7, R8, R10, R11, R12,R13,R14,R0,R2);
+            R1 = RELEASE_BLOCK;
+            R2 = block;
+            call MEMORY_MANAGER;
+            multipop( R7, R8, R10, R11, R12,R13,R14,R0,R2);
+            bi = bi+1;
+        endwhile;
+    i = i+ 1;
+    endwhile;
+    // ------------------------------3. invalidate the root file entry ------------------------------
+    alias roott R3;
+    roott = ROOT_FILE + filenum*8;
+    [inode + 1] = -1;
+    [roott] = 0;
+    multipush( R7, R8, R10, R11, R12,R13,R14,R0,R2,R3,R15);
+    R1 = RELEASE_INODE;
+    R2 = filenum;
+    R3 = pid;
+    call RESOURCE_MANAGER;
+    multipop( R7, R8, R10, R11, R12,R13,R14,R0,R2,R3,R15);
+    retn = 0;
+    call exit;
+    
+endif;
+
+
+
+exit:
+    [pcb + 9] = 0;
+    SP = [pcb + 13];
+    ireturn;
+
+ltv:
+    i = R14/512;
+    i = [PAGE_TABLE_BASE + R15*20 + 2*i];
+    R13 = (i*512) + (R14%512);
+    return;

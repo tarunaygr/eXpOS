@@ -1,0 +1,156 @@
+//Process Manager
+//print "MOD 1";
+alias funcno R1;
+if( funcno==FREE_USER_AREA_PAGE ) then
+    alias pid R2;
+    R3=PROCESS_TABLE+16*pid;
+    alias i R10;
+    alias pprt R11;
+    pprt=[R3+11]+496;
+    i=0;
+    while(i<8)do    
+       if( [pprt +2*i]==1)then
+            backup;
+            R1=RELEASE_SEMAPHORE;
+            R2=[pprt +2*i +1];
+            R3=pid;
+            call MOD_0;
+            restore;
+        endif;
+        if( [pprt +2*i]==0)then
+            backup;
+            R1=CLOSE;
+            R2=[pprt +2*i +1];
+            call MOD_3;
+            restore;
+        endif;
+        i=i+1;
+    endwhile;
+
+    multipush(R0,R1,R2,R3);
+    R1=RELEASE_PAGE;
+    R2=[R3+11];
+    call MOD_2;
+    multipop(R0,R1,R2,R3);
+   
+
+    return;
+endif ;
+
+if( funcno==EXIT_PROCESS) then
+    //print "exit process";
+    alias pid R2;
+    if( [PROCESS_TABLE+(16*pid)+9]!=9 ) then
+        alias i R4;
+        i=0;
+        while( i<16 ) do
+        
+            if( ([PROCESS_TABLE+(16*i)+4]==WAIT_PROCESS) && ([PROCESS_TABLE+(16*i)+5]==pid)) then
+                [PROCESS_TABLE+(16*i)+4]=READY;
+            endif ;
+            if( [PROCESS_TABLE+(16*i)+2]==[SYSTEM_STATUS_TABLE+1] ) then
+                [PROCESS_TABLE+(16*i)+2]=-1;
+            endif ;
+            i=i+1;
+        endwhile ;
+    endif ;
+
+
+    backup;
+    R1=FREE_PAGE_TABLE;
+    R2=pid;
+    call MOD_1;
+    restore;
+    backup;
+    R1=FREE_USER_AREA_PAGE;
+    R2=pid;
+    call MOD_1;
+    restore;
+    [PROCESS_TABLE +([SYSTEM_STATUS_TABLE+1]*16)+4]=TERMINATED; 
+
+    return;
+endif ;
+
+if( funcno==FREE_PAGE_TABLE ) then
+    alias ptlr R4;
+    alias i R3;
+    alias PID R2;
+    ptlr=[PROCESS_TABLE +(PID*16)+15];
+    i=0;
+    R7=PAGE_TABLE_BASE+(20*PID);
+    while( i<ptlr ) do
+        R6=[R7+(2*i)];
+        if(i>1&&R6!=-1)then
+            multipush(R0,R1,R2,R3,R4,R6,R7);
+            R1=RELEASE_PAGE;
+            R2=R6;
+            call MOD_2;
+            multipop(R0,R1,R2,R3,R4,R6,R7);
+        endif;
+        [R7+(2*i)]=-1;
+        [R7+(2*i)+1]="0000";
+        i=i+1;
+    endwhile ;
+    alias disk_table R7;
+    disk_table= DISK_MAP_TABLE+(10*PID);
+    i=2;
+    while(i<4)do
+        if( [disk_table+i]!=-1 ) then
+            multipush(R0,R1,R2,R3,R4,R6,R7);
+            R1=RELEASE_BLOCK;
+            R2=[disk_table+i];
+            R3=PID;
+            call MOD_2;
+            multipop(R0,R1,R2,R3,R4,R6,R7);         
+            i=i+1;
+        else
+            i=i+1;
+        endif ;
+    endwhile;
+
+    i=8;
+    while(i<10)do
+        if( [disk_table+i]!=-1 ) then
+            multipush(R0,R1,R2,R3,R4,R6,R7);
+            R1=RELEASE_BLOCK;
+            R2=[disk_table+i];
+            R3=PID;
+            call MOD_2;
+            multipop(R0,R1,R2,R3,R4,R6,R7);         
+            i=i+1;
+        else
+            i=i+1;
+        endif ;
+    endwhile;
+
+    i=0;
+    while( i<10 ) do
+        [disk_table+i]=-1;
+        i=i+1;
+    endwhile ;
+
+return;
+endif ;
+
+if( funcno==GET_PCB_ENTRY ) then
+R2=PROCESS_TABLE;
+alias i R3;
+R3=0;
+while( R3<16 ) do
+    if([R2+(16*i)+4]==TERMINATED) then
+        [R2+(16*i)+4]=ALLOCATED;
+        [R2+(16*i)+1]=i;
+        [R2+(16*i)+14]=PAGE_TABLE_BASE+(20*i);
+        [R2+(16*i)+15]=10;
+        R0=i;
+        return;
+    else
+        i=i+1;
+    endif ;
+endwhile ;
+//print "pcb overflow";
+R0=-1;
+return;
+else
+    return;
+endif ;

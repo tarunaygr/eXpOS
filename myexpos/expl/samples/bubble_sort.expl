@@ -1,0 +1,47 @@
+decl
+    int arr[1000];
+enddecl
+
+int main(){
+    decl
+        int n, i , j, temp;
+    enddecl
+    begin
+        write("enter n");
+        read(n);
+        if(n>1000) then
+            write("enter less than 1000");
+        else
+            write("enter numbers");
+            i = 0;
+            while(i < n) do
+                read(arr[i]);
+                i = i+1;
+            endwhile;
+            i = 0;
+            while(i<n)
+            do
+                j = 1;
+                while(j<(n-i))
+                do
+                    if(arr[j-1]>arr[j])
+                    then
+                        temp = arr[j];
+                        arr[j] = arr[j-1];
+                        arr[j-1] = temp;
+                    endif;
+                    j = j+1;
+                endwhile;
+                i = i+1;
+            endwhile;
+            write("sortedarray");
+            i = 0;
+            while(i < n) do
+                write(arr[i]);
+                i = i+1;
+            endwhile;
+        endif;
+    return 0;
+    end
+
+}

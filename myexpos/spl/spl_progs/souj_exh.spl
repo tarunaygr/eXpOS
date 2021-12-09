@@ -1,0 +1,78 @@
+print "exception";
+// the current process is executing in systemcall, exception or user mode
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1]*16 + 9]=-1;
+
+
+//SP saved to UPTR
+[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+//setting SP to beginning of kernel stack
+SP=[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+
+
+
+backup;
+
+multipush(EIP);
+
+if(EC != 0) then
+        print("PAGE FAULT");
+
+        R1=3; //EXIT_PROCESS
+        R2=[SYSTEM_STATUS_TABLE + 1];
+        call MOD_1; //process manager module
+
+        call CONTEXT_SWITCH;
+
+else
+        if(EPN == 4 || EPN == 5 || EPN == 6 || EPN == 7) then
+
+
+                R1=5; //get code page
+                R2=[DISK_MAP_TABLE + 10*[SYSTEM_STATUS_TABLE+1] + EPN];
+
+                call MOD_2;//mem manager
+
+                [PTBR+EPN*2]=R0;
+                [PTBR+EPN*2+1]="1100";
+
+        else
+                print("HEAP ISSUE");
+
+                //for heap
+                R1=1;
+                call MOD_2;
+                [PTBR+4] = R0;
+                [PTBR+5] = "1110";
+print R0;
+
+                R1=1;
+                call MOD_2;
+                [PTBR+6] = R0;
+                [PTBR+7] = "1110";
+print R0;
+breakpoint;
+        endif;
+endif;
+
+
+multipop(EIP);
+
+restore;
+
+
+//indicates weather the current process is executing in systemcall, exception or user mode
+[PROCESS_TABLE + [SYSTEM_STATUS_TABLE + 1]*16 + 9]=0;
+
+
+//setiing SP back to top of user stack
+SP=[PROCESS_TABLE + ([SYSTEM_STATUS_TABLE+1]*16)+13];
+
+SP=SP+1;
+R10 = SP/512;
+R11 = SP % 512;
+//print("1");
+R10 = [PTBR + R10*2]*512;
+[R10+R11] = EIP;
+//[SP]=EIP;
+
+ireturn;

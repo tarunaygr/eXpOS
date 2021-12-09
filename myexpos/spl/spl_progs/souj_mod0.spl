@@ -1,0 +1,237 @@
+alias functionNum R1;
+alias currentPID R2;	//named local as sem_id in SEM_RELEASE, as inode_table_index, as buffer_num in acqand release buffer
+alias counter R3;	//named local as currPID in SEM_RELEASE, ACQUIRE_INODE, acquire and release buffer
+alias named_local R4;
+
+if(functionNum == 8) then
+	while([TERMINAL_STATUS_TABLE + 0] == 1) do
+		[PROCESS_TABLE + currentPID*16 + 4] = WAIT_TERMINAL;
+		backup;		//instead of multipush
+		call MOD_5;
+		restore;	//instead of multipop
+	endwhile;
+
+	[TERMINAL_STATUS_TABLE + 0] = 1;
+	[TERMINAL_STATUS_TABLE + 1] = currentPID;
+
+	return;
+endif;
+
+if(functionNum == 9) then
+	if(currentPID != [TERMINAL_STATUS_TABLE + 1]) then
+		R0 = -1;
+		return;
+	endif;
+	[TERMINAL_STATUS_TABLE + 0] = 0;
+	counter = 0;
+
+	//----setting all process that were WAIT_TERMINAL to READY----
+	while(counter < 16) do
+		if([PROCESS_TABLE + counter*16 + 4] == WAIT_TERMINAL) then
+			[PROCESS_TABLE + counter*16 + 4] = READY;
+		endif;
+		counter = counter+ 1;
+	endwhile;
+	R0 = 0;
+	
+	return;
+endif;
+
+
+
+
+
+if(functionNum == ACQUIRE_DISK) then
+	while([DISK_STATUS_TABLE + 0] == 1) do 
+		[PROCESS_TABLE + 16*[SYSTEM_STATUS_TABLE + 1] + 4] = WAIT_DISK;
+		multipush(R0, R1, R2, R3, R4);
+		call MOD_5;
+		multipop(R0, R1, R2, R3, R4);
+	endwhile;
+						//LOCK the DISK when available
+	[DISK_STATUS_TABLE + 0] = 1;		//setting STATUS as 1 in DISK_STAT_TAB
+	[DISK_STATUS_TABLE + 4] = currentPID;	//setting PID as currPID in DISK_STAT_TAB
+
+	return;
+endif;
+
+//return;
+
+
+
+
+
+
+if(functionNum == ACQUIRE_SEMAPHORE) then
+	alias i R4;
+	i = 0;
+	while(i < MAX_SEM_COUNT) do
+		//backup;
+		//print i;
+		//restore;
+		if([SEMAPHORE_TABLE + i*4 + 1] == 0) then
+			[SEMAPHORE_TABLE + i*4 + 1] = 1;	// make proess count to 1
+			[SEMAPHORE_TABLE + i*4 + 0] = -1;	//make locking PID to -1;
+							//if a free entry ids found in SEM_TAB
+			R0 = i;
+			return;
+		endif;
+	i = i + 1;
+	endwhile;
+	
+	R0 = -1;		//return -1 if no entry free in SEM_TABLE
+	return;
+	
+endif;
+
+
+
+
+
+
+
+if(functionNum == RELEASE_SEMAPHORE) then
+	alias sem_id R2;
+	alias currPID R3;
+	alias i R4;
+	if([SEMAPHORE_TABLE + sem_id*4 + 0] == currPID) then
+		[SEMAPHORE_TABLE + sem_id*4 + 0] = -1;
+		i = 0;
+		while(i < MAX_PROC_NUM) do
+			if([PROCESS_TABLE + i*16 + 4] == WAIT_SEMAPHORE  && [PROCESS_TABLE + i*16 + 5] == sem_id) then
+				[PROCESS_TABLE + i*16 + 4] = READY;
+			endif;
+		i = i + 1;
+		endwhile;
+	endif;
+
+	[SEMAPHORE_TABLE + sem_id*4 + 1] = [SEMAPHORE_TABLE + sem_id*4 + 1] - 1;
+
+	R0 = 0;		//this will always be a success since sem_id will always be valid since it wil always be obtained from PER_PROCESS_TAB which will always get valid seM_ids from accquire semaphire func
+	return;
+endif;
+
+
+
+
+
+
+
+if(functionNum == ACQUIRE_INODE) then
+	alias inode_table_index R2;
+	alias currPID R3;
+
+	while([FILE_STATUS_TABLE + 4*inode_table_index + 0] != -1) do
+		[PROCESS_TABLE + 16*currPID + 4] = WAIT_FILE;
+		[PROCESS_TABLE + 16*currPID + 5] = inode_table_index;
+
+		backup;
+		call MOD_5;
+		restore;
+	endwhile;
+
+	if([INODE_TABLE + 16*inode_table_index + 1] == -1) then		//if file deleted, by the time inode was acquired
+		R0 = -1;
+		return;
+	else
+		[FILE_STATUS_TABLE + 4*inode_table_index + 0] = currPID;	//locking the INODE at desored index
+		R0 = 0;
+		return;
+	endif;
+
+endif;
+
+
+
+
+
+
+
+
+if(functionNum == RELEASE_INODE) then
+	alias inode_table_index R2;
+	alias currPID R3;
+	alias i R4;
+
+
+	if([FILE_STATUS_TABLE + 4*inode_table_index + 0] != currPID) then
+
+		R0 = -1;	//returning -1 as lockingPID is diffrent from process requesting to Release\
+		return;
+
+	else
+
+		[FILE_STATUS_TABLE + 4*inode_table_index + 0] = -1;
+
+		i = 0;
+		while(i < MAX_PROC_NUM) do
+			if([PROCESS_TABLE + 16*i + 4] == WAIT_FILE &&  [PROCESS_TABLE + 16*i + 5] == inode_table_index) then
+				[PROCESS_TABLE + 16*i + 4] = READY;
+			endif;
+		i = i + 1;
+		endwhile;
+
+		R0 = 0;
+		return;		
+
+	endif;
+
+endif;
+
+
+
+
+
+
+
+
+
+if(functionNum == ACQUIRE_BUFFER) then
+	alias buffer_num R2;
+	alias currPID R3;
+
+	while([BUFFER_TABLE + 4*buffer_num + 2] != -1  &&  [BUFFER_TABLE + 4*buffer_num + 2] != currPID) do
+		[PROCESS_TABLE + 16*currPID + 4] = WAIT_BUFFER;
+		[PROCESS_TABLE + 16*currPID + 5] = buffer_num;
+
+		backup;
+		call MOD_5;
+		restore;
+	endwhile;
+
+	[BUFFER_TABLE + 4*buffer_num + 2] = currPID;
+
+	return;
+endif;
+
+
+
+
+
+
+
+
+if(functionNum == RELEASE_BUFFER) then
+	alias buffer_num R2;
+	alias currPID R3;
+	alias i R4;
+
+	if([BUFFER_TABLE + 4*buffer_num + 2] != currPID) then	//if calling process hasnt acqred that buff
+		R0 = -1;
+		return;
+	else		//if calling process has acqrd taht buff
+
+		[BUFFER_TABLE + 4*buffer_num + 2] = -1;
+
+		i = 0;
+		while(i < MAX_PROC_NUM) do
+			if([PROCESS_TABLE + 16*i + 4] == WAIT_BUFFER && [PROCESS_TABLE + 16*i + 5] == buffer_num) then
+				[PROCESS_TABLE + 16*i + 4] = READY;
+			endif;
+		i = i + 1;
+		endwhile;
+
+		R0 = 0;
+		return;
+	endif;
+endif;

@@ -1,0 +1,26 @@
+int main()
+{
+    decl
+        int d, p, n,temp;
+    enddecl
+    begin
+        n = 2;
+        while(n<100) do
+            d = 0;
+            p = 2;
+            while(p <= (n/2)) do
+                temp = n%p;
+                if(temp == 0) then
+                    d = d+1;
+                    break;
+                endif;
+                p = p+1;
+            endwhile;
+            if(d == 0) then
+                temp = exposcall ( "Write" , -2, n );
+            endif;
+            n = n+1;
+        endwhile;
+        return 0;
+    end
+}

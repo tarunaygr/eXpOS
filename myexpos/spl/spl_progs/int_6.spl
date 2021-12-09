@@ -1,0 +1,119 @@
+
+//print "INT 6";
+alias UStack R10;
+UStack=SP;
+
+alias syscallno R11;
+alias i R9;
+syscallno = [[PTBR + 2 * ((UStack - 5) / 512)] * 512 + ((UStack - 5) % 512)];
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+
+alias returnvalue R12;
+returnvalue = ([PTBR + 2 * ((UStack - 1) / 512)] * 512) + ((UStack - 1) % 512);
+
+alias a1 R13;
+a1 = ([PTBR + 2 * ((UStack - 4) / 512)] * 512) + ((UStack - 4) % 512); //FILE DESCIPTOR ADDRESS
+//[a1] contains the file descriptor
+
+alias a2 R14;
+a2 = ([PTBR + 2 * ((UStack - 3) / 512)] * 512) + ((UStack - 3) % 512);
+
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=7;
+
+if( [a1]==-1 ) then //TERMINAL READ
+
+    multipush(R9,R10,R11,R12,R13,R14);
+    R1=4;       //For Terminal Read
+    R2=[SYSTEM_STATUS_TABLE+1];
+    R3=[a2];//[a2] contains the logical address of the variable to store the imput
+    call MOD_4;
+    multipop(R9,R10,R11,R12,R13,R14);
+
+    [returnvalue]=0;
+else //FILE READ
+
+    if( [a1]>7 || [a1]<0 ) then
+        [returnvalue]=-1;
+        call exit;
+    endif ;
+    alias pprt R15;
+    pprt=([PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11])*512 + 496;
+
+    if( [pprt + 2*[a1]]!=FILE ) then
+        [returnvalue]=-1;
+        call exit;
+    endif ;
+    alias ofentry R8;
+    ofentry=OPEN_FILE_TABLE + 4*[pprt + 2*[a1]+1]; //open file table entry of the file
+
+    multipush(R8,R9,R10,R11,R12,R13,R14,R15);
+    R1=ACQUIRE_INODE;
+    R2=[ofentry];//inodeindex
+    R3=[SYSTEM_STATUS_TABLE+1];
+    call MOD_0;
+    R7=R0;
+    multipop(R8,R9,R10,R11,R12,R13,R14,R15);
+
+    if( R7==-1 ) then
+
+        [returnvalue]=-1;
+        call exit;
+    endif ;
+    alias phyaddr R7;
+    phyaddr=([PTBR + 2 * ([a2] / 512)] * 512) + ([a2] % 512);
+
+    if( [ofentry]==INODE_ROOT ) then
+
+        if( [ofentry+2]>=480 ) then
+            multipush(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+            R1=RELEASE_INODE;
+            R2=[ofentry];//inodeindex
+            R3=[SYSTEM_STATUS_TABLE+1];
+            call MOD_0;
+            multipop(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+            [returnvalue]=-2;
+            call exit;
+        endif ;
+
+        [phyaddr]=[ROOT_FILE+[ofentry+2]];
+        [ofentry+2]=[ofentry+2]+1;
+
+    else
+
+        if( [ofentry+2]>=[INODE_TABLE + 16*[ofentry]+2] ) then
+            
+            multipush(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+            R1=RELEASE_INODE;
+            R2=[ofentry];//inodeindex
+            R3=[SYSTEM_STATUS_TABLE+1];
+            call MOD_0;
+            multipop(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+            [returnvalue]=-2;
+            call exit;
+        endif ;
+
+        multipush(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+        R1=BUFFERED_READ;
+        R2=[INODE_TABLE + 16*[ofentry]+8+([ofentry+2]/512)];
+        R3=[ofentry+2]%512;
+        R4=phyaddr;
+        call MOD_3;
+        multipop(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+        [ofentry+2]=[ofentry+2]+1;
+    endif ;
+
+    multipush(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+    R1=RELEASE_INODE;
+    R2=[ofentry];//inodeindex
+    R3=[SYSTEM_STATUS_TABLE+1];
+    call MOD_0;
+    multipop(R7,R8,R9,R10,R11,R12,R13,R14,R15);
+    [returnvalue]=0;
+    call exit;
+endif ;
+
+exit:
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13];
+ireturn;

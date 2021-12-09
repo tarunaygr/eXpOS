@@ -1,0 +1,69 @@
+alias UStack R0;
+UStack=SP;
+
+alias syscallno R1;
+
+syscallno = [[PTBR + 2 * ((UStack - 5) / 512)] * 512 + ((UStack - 5) % 512)];
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+alias returnvalue R3;
+returnvalue = ([PTBR + 2 * ((UStack - 1) / 512)] * 512) + ((UStack - 1) % 512);
+
+//WAIT
+//print "INT 11";
+if( syscallno==13 ) then
+    alias pid R2;
+    
+    pid=[[PTBR + 2 * ((UStack - 4) / 512)] * 512 + ((UStack - 4) % 512)];// pid to wait for
+    [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=13;
+
+    if( [PROCESS_TABLE+ (pid*16)+4]==TERMINATED || pid>15 ||pid==[SYSTEM_STATUS_TABLE+1] ) then
+        [returnvalue]=-1;
+        call exit;
+    else
+        [PROCESS_TABLE+ ([SYSTEM_STATUS_TABLE+1]*16)+4]=WAIT_PROCESS; 
+        [PROCESS_TABLE+ ([SYSTEM_STATUS_TABLE+1]*16)+5]=pid;
+        multipush(R0,R1,R2,R3);
+        call MOD_5;
+        multipop(R0,R1,R2,R3);
+        [returnvalue]=0;
+
+        call exit;
+    endif ;
+
+endif ;
+
+//SIGNAL
+
+if( syscallno==14 ) then
+    [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=14;
+    alias i R2;
+    i=0;
+    while( i<16 ) do
+        if( [PROCESS_TABLE+ (i*16)+4]==WAIT_PROCESS && [PROCESS_TABLE+ (i*16)+5]==[SYSTEM_STATUS_TABLE+1] ) then
+            [PROCESS_TABLE+ (i*16)+4]=READY;
+        endif ;
+        i=i+1;
+    endwhile ;
+    [returnvalue]=0;
+    call exit;
+endif ;
+
+//GET PID
+if( syscallno==11 ) then
+    [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=11;
+    [returnvalue]= [SYSTEM_STATUS_TABLE+1];
+    call exit;
+endif ;
+
+//GET PPID
+if( syscallno==12 ) then
+    [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=12;
+    [returnvalue]= [PROCESS_TABLE+(16*[SYSTEM_STATUS_TABLE+1])+2];
+    call exit;
+endif ;
+
+exit:
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13];
+ireturn;

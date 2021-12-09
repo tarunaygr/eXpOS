@@ -1,0 +1,90 @@
+//print "int13";
+alias UStack R5;
+UStack=SP;
+
+alias syscallno R1;
+
+syscallno = [[PTBR + 2 * ((UStack - 5) / 512)] * 512 + ((UStack - 5) % 512)];
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+alias returnvalue R3;
+returnvalue = ([PTBR + 2 * ((UStack - 1) / 512)] * 512) + ((UStack - 1) % 512);
+
+//Semget
+if( syscallno==17 ) then
+    //print "Sem get";
+    [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=17;
+    alias pprt R10;
+    alias i R11;
+    i=0;
+    alias index R12;
+    pprt=([PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11])*512 + 496;
+    while(i<8)do
+        if( [pprt + 2*i]==-1 )then
+            index=i;
+            break;
+        endif;
+        i=i+1;
+        if(i>7)then
+            [returnvalue]=-1;
+            call exit;
+        endif;
+    endwhile;
+
+    
+
+    multipush(R5,R1,R3,R10,R11,R12);
+    R1=ACQUIRE_SEMAPHORE;
+    R2=[SYSTEM_STATUS_TABLE+1];
+    call MOD_0;
+    if(R0==-1)then
+        [returnvalue]=-2;
+        call exit;
+    endif;
+    [pprt + 2*index +1]=R0;
+    [pprt +2*index+ 0]=1;
+    multipop(R5,R1,R3,R10,R11,R12);
+    
+    //print "acquired";
+    breakpoint;
+    [returnvalue]=index;
+
+    call exit;
+
+endif ;
+
+//SemRelease
+if(syscallno==18)then
+    //print "sem release";   
+    [PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=18;
+    alias semid R9;
+    alias pprt R11;
+    pprt=([PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11])*512 + 496;
+    PTBR=PAGE_TABLE_BASE + (20*[SYSTEM_STATUS_TABLE+1]);
+    semid= [[PTBR + 2 * ((UStack - 4) / 512)] * 512 + ((UStack - 4) % 512)];
+
+    if(semid>7 || [pprt + 2*semid]!=1)then
+        [returnvalue]=-1;
+        
+        //print "ill semid rel";
+        call exit;
+    endif;
+
+    multipush(R5,R1,R10,R11,R9);
+    R1=RELEASE_SEMAPHORE;
+    R2=[pprt + 2*semid+ 1];
+    R3=[SYSTEM_STATUS_TABLE+1];
+
+    call MOD_0;
+    multipop(R5,R1,R10,R11,R9);
+    //print "Sem Release2";
+    [pprt + 2*semid]=-1;
+    [pprt + 2*semid +1]=-1;
+    [returnvalue]=0;
+    call exit;
+endif;
+
+exit:
+[PROCESS_TABLE+[SYSTEM_STATUS_TABLE+1]*16+9]=0;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13];
+ireturn;

@@ -1,0 +1,52 @@
+alias currentPID R0;
+currentPID = [SYSTEM_STATUS_TABLE +1];
+multipush(BP);
+//print("REACHED MOD5");
+alias process_table_entry R1;
+process_table_entry = PROCESS_TABLE + currentPID * 16;
+//Save KPTR,PTBR and PTLR values to the process table of the current process
+
+[process_table_entry + 12] = SP % 512;//KPTR offset is saved so that we can reallocate the user Page if necessary.
+[process_table_entry + 14] = PTBR;
+[process_table_entry + 15] = PTLR;
+alias newPID R2;
+alias l R10;
+//print("switching from ");
+//print(currentPID);
+l = currentPID+1;
+newPID = -1;
+while(l<MAX_PROC_NUM) do
+    process_table_entry = PROCESS_TABLE + l*16;
+    if([process_table_entry + 4] == READY || [process_table_entry + 4] == CREATED) then
+        break;
+    endif;
+    l = l + 1;
+endwhile;
+
+alias new_process_table R3;
+newPID = l;
+if(newPID == MAX_PROC_NUM) then
+    newPID = 0;
+    new_process_table = PROCESS_TABLE + newPID*16;
+endif;
+//print("switching now");
+//print(newPID);
+
+new_process_table = PROCESS_TABLE + newPID * 16;
+SP =  [new_process_table + 11] * 512 + [new_process_table + 12] ;
+PTBR = [new_process_table + 14];
+PTLR = [new_process_table + 15];
+[SYSTEM_STATUS_TABLE+1] = newPID;
+if([PROCESS_TABLE + 16*newPID +4] ==  CREATED) then
+    SP = [new_process_table+13];
+    [new_process_table+4] =RUNNING; 
+    [new_process_table+9] =0;
+    //restore bp from kernel stack 
+    BP = [[new_process_table+11]*512];
+    ireturn;
+endif;
+[new_process_table+4] = RUNNING;
+[new_process_table+9] = 0;//mode flag
+multipop(BP);
+return;
+    

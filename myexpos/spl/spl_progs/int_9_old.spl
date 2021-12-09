@@ -1,0 +1,146 @@
+//print "int9";
+alias currentPID R10;
+alias process_table_entry R11;
+
+alias UStack R0;
+UStack=SP;
+
+[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+13]=SP;
+SP=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11]*512-1;
+
+
+currentPID=[SYSTEM_STATUS_TABLE+1];
+process_table_entry=PROCESS_TABLE+currentPID*16;
+
+[process_table_entry+9]=9; //Setting the mode flag
+
+alias filename R1;
+
+filename= [([PTBR+2*((UStack-4)/512)]*512)+((UStack-4)%512)];
+
+//Searching in the inode table
+
+alias i R2;
+alias inodeindex R3;
+alias physicalAddrRetVal R5;
+physicalAddrRetVal = ([PTBR + 2 * ((UStack - 1) / 512)] * 512) + ((UStack - 1) % 512);
+
+i=0;
+while( i<MAX_FILE_NUM ) do
+    if([INODE_TABLE+(i*16)+1]==filename&&[INODE_TABLE+(i*16)]==EXEC) then
+        inodeindex=i;
+        break;
+    else
+        i=i+1;
+        if( i>=MAX_FILE_NUM ) then
+            SP=UStack;
+            [process_table_entry+9]=0;
+            [physicalAddrRetVal]=-1;
+            ireturn;
+        endif ;
+    endif ;
+endwhile;
+multipush(R0,R1,R2,R3,R5,R10,R11);
+R1=EXIT_PROCESS;
+R2=currentPID;
+call MOD_1;
+
+multipop(R0,R1,R2,R3,R5,R10,R11);
+
+alias userpage R4;
+
+userpage=[PROCESS_TABLE+([SYSTEM_STATUS_TABLE+1]*16)+11];
+
+[MEMORY_FREE_LIST +userpage]=[MEMORY_FREE_LIST +userpage]+1;
+[SYSTEM_STATUS_TABLE+2]=[SYSTEM_STATUS_TABLE+2]-1;
+
+SP=userpage*512-1;
+[process_table_entry+4]=RUNNING;
+[process_table_entry+7]=inodeindex;
+
+PTBR=PAGE_TABLE_BASE+(20*currentPID);
+PTLR=10;
+
+alias pprt R12;
+
+pprt =(userpage+1)*512 - 16;
+
+i=0;
+while( i<16 ) do
+    [pprt+i]=-1;
+    i=i+1;
+endwhile ;
+
+//Library
+[PTBR+0]=63;
+[PTBR+1]="0100";
+[PTBR+2]=64;
+[PTBR+3]="0100";
+
+alias pg1 R6;
+alias pg2 R7;
+alias pg3 R8;
+alias pg4 R9;
+
+multipush(R10,R11,R0,R1,R2,R3,R4,R5);
+R1=GET_FREE_PAGE;
+call MOD_2;
+pg1=R0;
+
+R1=GET_FREE_PAGE;
+call MOD_2;
+pg2=R0;
+
+R1=GET_FREE_PAGE;
+call MOD_2;
+pg3=R0;
+
+R1=GET_FREE_PAGE;
+call MOD_2;
+pg4=R0;
+
+multipop(R10,R11,R0,R1,R2,R3,R4,R5);
+
+//Heap
+[PTBR+4]=pg1;
+[PTBR+5]="0110";
+[PTBR+6]=pg2;
+[PTBR+7]="0110";
+
+//stack
+[PTBR+16]=pg3;
+[PTBR+17]="0110";
+[PTBR+18]=pg4;
+[PTBR+19]="0110";
+
+alias count R13;
+count=0;
+count=[INODE_TABLE+(inodeindex*16)+2]/512;
+if([INODE_TABLE+(inodeindex*16)+2]%512>0) then
+    count=count+1;
+endif;
+i=0;
+
+while(i<count) do
+    multipush(R10,R11,R0,R1,R2,R3,R4,R5,R13);
+    R1=GET_FREE_PAGE;
+    call MOD_2;
+    R15=R0;
+    multipop(R10,R11,R0,R1,R2,R3,R4,R5,R13);
+    R14=[INODE_TABLE+(inodeindex*16)+8+i];
+    multipush(R10,R11,R0,R1,R2,R3,R4,R5,R13,R15,R14);
+    R1=DISK_LOAD;
+    R2=currentPID;
+    R3=R15;
+    R4=R14;
+    call MOD_4;
+    multipop(R10,R11,R0,R1,R2,R3,R4,R5,R13,R15,R14);
+    [PTBR+8+(2*i)]=R15;   
+    [PTBR+9+(2*i)+1]="0100";
+    i=i+1;
+endwhile;
+
+[[PTBR+16]*512]=[[PTBR+8]*512+1];//Storing the start address into the top of user stack
+SP=8*512;
+[process_table_entry+9]=0;
+ireturn;
