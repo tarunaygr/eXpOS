@@ -1,4 +1,0 @@
-MOV R0 , "ERROR"
-MOV P1, R0
-OUT
-HALT

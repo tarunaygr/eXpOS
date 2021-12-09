@@ -1,9 +1,0 @@
-alias count R0;
-alias sum R1;
-count=0;
-sum=0;
-while( count<=20 ) do
-    sum=sum+(count*count);
-    count=count+1;
-endwhile ;
-print sum;
